@@ -1,41 +1,37 @@
-# Research: Uneekor → PurePlay Community Connector
+# Research: Uneekor → PurePlay / rēlā Community Connector
 
-**Status:** Research / planning (no public PurePlay open-API schema published yet)  
-**Date:** 2026-08-07  
-**Goal:** Define a viable path for a community connector that feeds Uneekor launch-monitor shot data into PurePlay.
+**Status:** Open API found + plugin scaffold building  
+**Date:** 2026-08-07 (updated with [rela-OtherLM](https://github.com/eKsiSLe/rela-OtherLM))  
+**Goal:** Community connector that feeds Uneekor launch-monitor shot data into PurePlay / rēlā.
 
 ---
 
 ## Executive summary
 
-PurePlay will not natively support Uneekor “at this time.” Their Discord guidance points community builders at:
+PurePlay will not natively support Uneekor “at this time.” Discord guidance pointed at an in-app open API for community plugins — that surface is **[eKsiSLe/rela-OtherLM](https://github.com/eKsiSLe/rela-OtherLM)** (branded **rēlā**): load a .NET `ILMDevice` DLL next to `rela.exe`, Device Type = **Other**.
 
-1. An **open API inside the PurePlay app** (for community plugins), and  
-2. Rumors of an **Uneekor plugin** / existing community patterns.
+**Chosen architecture (no TCP bridge required):**
 
-Uneekor does **not** publish a clean public developer SDK for arbitrary sims. Practical integrations today use one of:
+```
+Uneekor VIEW ShotData JSON
+        │
+        ▼
+UneekorRelaConnector.dll   (ILMDevice plugin in this repo)
+        │ OnShotEnded(DeviceShotData)
+        ▼
+rēlā / PurePlay host (Device Type = Other)
+```
+
+Uneekor ingest options (ranked):
 
 | Path | Source of truth | Reliability | Notes |
 |------|-----------------|-------------|--------|
-| **A. VIEW ShotData folder watch** | `%LOCALAPPDATA%\..\LocalLow\Uneekor\VIEW\ShotData\` | High | Best free/community approach; used by Open-Birdie |
-| **B. GSPconnect / Uneekor “OpenAPI” → GSPro Open Connect** | Official Uneekor 3rd-party / GSPro path | Medium | Requires Uneekor Pro / connector entitlements; recent VIEW versions have blacklisted OpenAPI window titles / process names |
-| **C. OCR of VIEW Numbers / Multi View** | Screen scrape via Tesseract | Low–Medium | Pattern from [springbok/MLM2PRO-GSPro-Connector](https://github.com/springbok/MLM2PRO-GSPro-Connector); brittle across VIEW UI/font updates |
-| **D. Official Uneekor 3rd-party connector** | Uneekor Launcher | N/A for PurePlay | Only GSPro, E6, TGC 2019, ProTee Play, Creative Golf |
+| **A. VIEW ShotData folder watch** | `%LOCALAPPDATA%\..\LocalLow\Uneekor\VIEW\ShotData\` | High | **Selected.** Used by Open-Birdie; works on Practice tier |
+| **B. GSPconnect / Uneekor “OpenAPI” → GSPro Open Connect** | Official Uneekor 3rd-party / GSPro path | Medium | Entitlements + recent blacklists; unnecessary if ShotData works |
+| **C. OCR of VIEW Numbers / Multi View** | Screen scrape via Tesseract | Low–Medium | springbok pattern; brittle fallback only |
+| **D. Official Uneekor 3rd-party connector** | Uneekor Launcher | N/A for PurePlay | GSPro/E6/TGC/etc. only |
 
-**Recommended architecture:** implement a small Windows bridge:
-
-```
-Uneekor VIEW (ShotData JSON)
-        │
-        ▼
-  Uneekor→PurePlay Connector
-  (normalize ball/club metrics, heartbeat, reconnect)
-        │
-        ▼
-  PurePlay Open API (community plugin listener)
-```
-
-Until PurePlay’s open API schema is captured from the app/Discord, treat the **output adapter as pluggable** and spike the Uneekor ingest side first (it is already well understood).
+See [rela-otherlm-api.md](rela-otherlm-api.md) for the full plugin contract. Scaffold lives in [`src/UneekorRelaConnector`](../src/UneekorRelaConnector).
 
 ---
 
@@ -68,7 +64,7 @@ Sources: [pureplaygolf.com](https://www.pureplaygolf.com/), public Patreon/Linke
   - **Official integrations** — licensed SDKs in-game; no third-party bridge. Site claims ~8 official, more in progress. Public mentions include Square, Golfjoy, ProTee.
   - **Open community integrations** — independent connectors; **not managed by PurePlay**.
 - **Uneekor specifically:** Omitted from native support; community plugins expected.
-- **Gap:** No public PurePlay open-API documentation found yet (ports, payload schema, heartbeat, club selection callbacks). This is the main blocker for the PurePlay half of the connector.
+- **Open API (found):** [rela-OtherLM](https://github.com/eKsiSLe/rela-OtherLM) documents the `Other` LM plugin surface (`ILMDevice` / `DeviceShotData`). Host binary name is `rela.exe`; confirm whether your PurePlay build uses the same loader (expected given Discord “open source API in the app”).
 
 ### Discord quote (user-provided)
 
@@ -254,40 +250,40 @@ Map from Uneekor `shotinfo.json` fields:
 
 ## Implementation plan
 
-### Phase 0 — Unblock PurePlay API schema (human + Discord)
+### Phase 0 — Open API schema — DONE
 
-- [ ] Collect PurePlay open API docs / sample payloads from Discord or the app.
-- [ ] Confirm: transport (TCP / WS), port, auth?, heartbeat, shot fields, player/club callbacks.
-- [ ] Ask whether PurePlay already accepts GSPro Open Connect (would collapse scope).
-- [ ] Identify any existing “Uneekor plugin” authors in that Discord.
+- [x] Found [rela-OtherLM](https://github.com/eKsiSLe/rela-OtherLM) + NuGet `rela.OtherDevice.Abstractions`.
+- [x] Documented contract in [rela-otherlm-api.md](rela-otherlm-api.md).
+- [ ] Confirm on a real PurePlay / rēlā install that Device Type **Other** loads side-by-side DLLs the same way.
+- [ ] Ask Discord if anyone already published an Uneekor Other-plugin (avoid duplicate work).
 
-### Phase 1 — Uneekor ingest spike (can start now)
+### Phase 1 — Plugin scaffold — IN PROGRESS
 
-- [ ] Port/adapt Open-Birdie ShotData watcher.
-- [ ] Unit tests with fixture `shotinfo.json` samples.
-- [ ] Confirm units on target VIEW version(s) (Eye Mini / Lite / XO family as available).
-- [ ] Optional: club data from `ProShotInfo.json` when present.
+- [x] Scaffold `UneekorRelaConnector` implementing `ILMDevice`.
+- [x] ShotData folder watcher + `shotinfo.json` mapping → `OnShotEnded`.
+- [x] Settings dialog (path, speed scale, invert HLA, mode/handedness).
+- [x] `dotnet build` succeeds (Linux SDK / `net6.0-windows` target).
+- [ ] Capture real VIEW `shotinfo.json` fixtures from your machine for unit tests.
+- [ ] Confirm ball-speed units (mph vs m/s) on your VIEW version.
 
-### Phase 2 — PurePlay adapter
+### Phase 2 — End-to-end on hardware
 
-- [ ] Implement adapter against confirmed open API.
-- [ ] Heartbeat / ready signaling if required.
-- [ ] Handle sim→connector player/club messages if present.
-- [ ] End-to-end test: swing in VIEW → ball flies in PurePlay.
+- [ ] Deploy DLL next to `rela.exe`; Device Type Other → Search.
+- [ ] Swing in VIEW → ball flies in sim.
+- [ ] Validate HLA sign, putting (`OTHER_PUTT_LIKE=1`), club name notes.
+- [ ] Exercise `SetClub` from host if available.
 
 ### Phase 3 — Hardening
 
-- [ ] Reconnect / mid-write JSON retries (Open-Birdie already does this).
-- [ ] Deduplicate shot folders; ignore historical shots on start.
-- [ ] Putting / low-speed path validation.
-- [ ] Fallback OCR path only if ShotData regresses (borrow springbok ROI ideas).
-- [ ] Avoid relying on Uneekor OpenAPI blacklist workarounds.
+- [ ] Mid-write JSON retries / richer logging.
+- [ ] Club Optix numeric fields if present in ProShotInfo / related JSON.
+- [ ] OCR fallback only if ShotData regresses.
+- [ ] Avoid Uneekor OpenAPI blacklist workarounds.
 
 ### Phase 4 — Ship
 
-- [ ] Windows installer + auto-start option.
-- [ ] README: setup order (VIEW → PurePlay → Connector).
-- [ ] Discord support channel checklist (logs, VIEW version, connector version).
+- [ ] GitHub Release with DLL artifact.
+- [ ] Short setup guide for Discord (VIEW → copy DLL → Other → Search).
 
 ---
 
@@ -325,7 +321,8 @@ Map from Uneekor `shotinfo.json` fields:
 
 ## Immediate next asks for you
 
-1. **Paste PurePlay Discord open-API details** (port, sample JSON, docs link) — do **not** send Discord password.  
-2. Confirm which Uneekor hardware + VIEW version you have (Eye Mini Lite / Eye Mini / Eye XO / etc.).  
-3. Confirm whether you already have Uneekor **Pro Package** / GSPconnect (nice-to-have only; not required if ShotData works).  
-4. If you find the rumored Uneekor↔PurePlay plugin, share the repo/Discord post so we can align rather than duplicate.
+1. Confirm whether your PurePlay build exposes Device Type **Other** / loads plugins like rēlā (`rela.exe` or equivalent).  
+2. Share a sample `shotinfo.json` (+ optional `ProShotInfo.json`) from your VIEW `ShotData` folder.  
+3. Uneekor hardware + VIEW version.  
+4. If Discord already has an Uneekor Other-plugin, share the link so we can align.  
+5. Still: **do not** send Discord login credentials.
