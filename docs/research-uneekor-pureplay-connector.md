@@ -168,22 +168,20 @@ Not PurePlay-specific, but useful if PurePlay adopts or mirrors them:
 
 ## Proposed connector design
 
-### Components
+### Components (implemented as in-process DLL)
 
 ```
 ┌─────────────────────┐
 │  Uneekor VIEW       │
 │  ShotData watcher   │  ← primary ingest
 └──────────┬──────────┘
-           │ NormalizedShot
+           │ ParsedUneekorShot
 ┌──────────▼──────────┐
-│  Core connector     │  session, units, dedupe, heartbeat, logging
+│ UneekorRelaConnector│  ILMDevice plugin (session, units, settings)
 └──────────┬──────────┘
-           │
-   ┌───────┴────────┐
-   ▼                ▼
- PurePlayAdapter  Debug/Replay
- (open API TBD)   (file / GSPro OC for testing)
+           │ OnShotEnded(DeviceShotData)
+           ▼
+     rēlā / PurePlay host
 ```
 
 ### Internal `NormalizedShot` (draft)
