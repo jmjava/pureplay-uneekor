@@ -11,6 +11,24 @@ internal sealed class UneekorConnectorSettings
     public decimal SpeedScale { get; set; } = 1m;
     public bool InvertHla { get; set; }
 
+    /// <summary>None | File | OpenConnect | Both</summary>
+    public string PuttingSource { get; set; } = "Both";
+    public string? PuttingDirectory { get; set; }
+    public string OpenConnectBind { get; set; } = "127.0.0.1";
+    public int OpenConnectPort { get; set; } = 921;
+    public bool IgnoreUneekorWhilePutting { get; set; } = true;
+    public bool AutoPuttingOnPutterClub { get; set; } = true;
+    public bool InvertPuttHla { get; set; }
+    public decimal PuttSpeedScale { get; set; } = 1m;
+
+    public bool FilePuttingEnabled =>
+        PuttingSource is "File" or "Both";
+
+    public bool OpenConnectPuttingEnabled =>
+        PuttingSource is "OpenConnect" or "Both";
+
+    public bool PuttingEnabled => FilePuttingEnabled || OpenConnectPuttingEnabled;
+
     public static UneekorConnectorSettings Load()
     {
         var path = GetPath();
@@ -39,7 +57,12 @@ internal sealed class UneekorConnectorSettings
     public UneekorConnectorSettings Copy()
         => (UneekorConnectorSettings)MemberwiseClone();
 
-    private void Normalize()
+    public string ResolvePuttingDirectory()
+        => string.IsNullOrWhiteSpace(PuttingDirectory)
+            ? ExputtPuttFileWatcher.DefaultPuttDirectory()
+            : PuttingDirectory;
+
+    public void Normalize()
     {
         Handedness = string.Equals(Handedness, "LH", StringComparison.OrdinalIgnoreCase) ? "LH" : "RH";
         Mode = Mode?.Trim().ToUpperInvariant() switch
@@ -49,6 +72,16 @@ internal sealed class UneekorConnectorSettings
             _ => "NORMAL"
         };
         if (SpeedScale <= 0) SpeedScale = 1m;
+        if (PuttSpeedScale <= 0) PuttSpeedScale = 1m;
+        if (OpenConnectPort <= 0 || OpenConnectPort > 65535) OpenConnectPort = 921;
+        if (string.IsNullOrWhiteSpace(OpenConnectBind)) OpenConnectBind = "127.0.0.1";
+        PuttingSource = PuttingSource?.Trim() switch
+        {
+            "None" or "none" or "NONE" => "None",
+            "File" or "file" => "File",
+            "OpenConnect" or "openconnect" or "TCP" or "Tcp" => "OpenConnect",
+            _ => "Both"
+        };
     }
 
     private static string GetPath()
