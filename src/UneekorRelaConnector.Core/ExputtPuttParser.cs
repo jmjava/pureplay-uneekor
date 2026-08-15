@@ -20,6 +20,10 @@ internal static class ExputtPuttParser
                || c.Equals("PUTTING", StringComparison.OrdinalIgnoreCase);
     }
 
+    public static bool IsPuttingActive(string? mode, string? club, bool autoOnPutterClub)
+        => string.Equals(mode, "PUTTING", StringComparison.OrdinalIgnoreCase)
+           || (autoOnPutterClub && IsPutterClub(club));
+
     public static bool TryParse(string json, out ParsedPutt putt, out string? error)
     {
         putt = default;

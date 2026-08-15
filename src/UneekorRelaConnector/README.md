@@ -17,6 +17,10 @@ Output: `src/UneekorRelaConnector/bin/Release/net6.0-windows/UneekorRelaConnecto
 
 ## Deploy
 
+Preferred: run the [setup app](../../docs/installer.md) (`UneekorRelaConnector.Setup.exe`) and point it at `rela.exe`.
+
+Or by hand:
+
 1. Start Uneekor Launcher → VIEW (Practice) so ShotData is written.
 2. Copy `UneekorRelaConnector.dll` next to `rela.exe` (do **not** copy the Abstractions DLL).
 3. Open rēlā / PurePlay → Device Type **Other** → Search.

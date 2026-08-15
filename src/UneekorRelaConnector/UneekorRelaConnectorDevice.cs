@@ -40,7 +40,7 @@ public sealed class UneekorRelaConnectorDevice : ILMDevice, IDeviceSettingsProvi
     public event Action<string> OnNote = delegate { };
 
     private bool IsPuttingActive =>
-        _mode == "PUTTING" || (_settings.AutoPuttingOnPutterClub && ExputtPuttParser.IsPutterClub(_lastClub));
+        ExputtPuttParser.IsPuttingActive(_mode, _lastClub, _settings.AutoPuttingOnPutterClub);
 
     public void Init()
     {

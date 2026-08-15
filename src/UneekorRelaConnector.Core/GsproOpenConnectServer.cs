@@ -27,8 +27,10 @@ internal sealed class GsproOpenConnectServer : IDisposable
     public GsproOpenConnectServer(string bindAddress, int port)
     {
         _bindAddress = string.IsNullOrWhiteSpace(bindAddress) ? "127.0.0.1" : bindAddress;
-        _port = port > 0 ? port : 921;
+        _port = port is >= 0 and <= 65535 ? port : 921;
     }
+
+    public int Port { get; private set; }
 
     public event Action<ParsedPutt>? PuttDetected;
     public event Action<string>? Log;
@@ -44,9 +46,10 @@ internal sealed class GsproOpenConnectServer : IDisposable
                 : IPAddress.Parse(_bindAddress);
             _listener = new TcpListener(ip, _port);
             _listener.Start();
+            Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
             var token = _cts.Token;
             _acceptLoop = Task.Run(() => AcceptLoop(token), token);
-            Log?.Invoke($"Open Connect listening on {_bindAddress}:{_port} (point springbok ExPutt at this host/port)");
+            Log?.Invoke($"Open Connect listening on {_bindAddress}:{Port} (point springbok ExPutt at this host/port)");
         }
     }
 

@@ -25,13 +25,18 @@ PurePlay / rēlā will not natively support Uneekor for now. The in-app open plu
 ## Quick start (Windows)
 
 ```bash
-dotnet build src/UneekorRelaConnector/UneekorRelaConnector.csproj -c Release
+dotnet build src/UneekorRelaConnector.Installer.App/UneekorRelaConnector.Installer.App.csproj -c Release
 ```
 
-1. Run Uneekor VIEW (Practice) so it writes ShotData.  
-2. Copy `UneekorRelaConnector.dll` next to `rela.exe`.  
-3. In rēlā / PurePlay: Device Type → **Other** → Search.  
-4. Hit balls. For putting, put ExPutt Camera on a **second monitor** and point springbok at `127.0.0.1:921` — see [the putting guide](docs/exputt-putting.md).
+Run `UneekorRelaConnector.Setup.exe`, browse to `rela.exe`, click **Install**. Then Device Type → **Other** → Search.
+
+Manual copy still works: build `UneekorRelaConnector.dll` and place it next to `rela.exe` (do not copy the Abstractions DLL).
+
+Putting: ExPutt Camera on a **second monitor**, springbok → `127.0.0.1:921`. See [the putting guide](docs/exputt-putting.md) and [installer notes](docs/installer.md).
+
+```bash
+dotnet test src/UneekorRelaConnector.Tests/UneekorRelaConnector.Tests.csproj
+```
 
 ## Architecture
 

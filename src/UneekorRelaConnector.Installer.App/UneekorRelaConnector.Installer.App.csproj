@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net6.0-windows</TargetFramework>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>UneekorRelaConnector.Setup</AssemblyName>
+    <RootNamespace>UneekorRelaConnector.Installer</RootNamespace>
+    <ApplicationTitle>Uneekor + ExPutt Connector Setup</ApplicationTitle>
+    <EnableDefaultApplicationDefinition>false</EnableDefaultApplicationDefinition>
+    <StartupObject>UneekorRelaConnector.Installer.App</StartupObject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\UneekorRelaConnector.Installer.Core\UneekorRelaConnector.Installer.Core.csproj" />
+    <ProjectReference Include="..\UneekorRelaConnector\UneekorRelaConnector.csproj">
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+  </ItemGroup>
+
+  <Target Name="CopyPluginPayload" AfterTargets="Build">
+    <PropertyGroup>
+      <_PluginDll>..\UneekorRelaConnector\bin\$(Configuration)\net6.0-windows\UneekorRelaConnector.dll</_PluginDll>
+    </PropertyGroup>
+    <MakeDir Directories="$(OutputPath)payload" />
+    <Copy
+      SourceFiles="$(_PluginDll)"
+      DestinationFolder="$(OutputPath)payload"
+      SkipUnchangedFiles="true"
+      Condition="Exists('$(_PluginDll)')" />
+  </Target>
+</Project>

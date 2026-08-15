@@ -29,9 +29,9 @@ internal sealed class UneekorConnectorSettings
 
     public bool PuttingEnabled => FilePuttingEnabled || OpenConnectPuttingEnabled;
 
-    public static UneekorConnectorSettings Load()
+    public static UneekorConnectorSettings Load(string? path = null)
     {
-        var path = GetPath();
+        path ??= DefaultPath();
         if (!File.Exists(path))
             return new UneekorConnectorSettings();
 
@@ -41,10 +41,10 @@ internal sealed class UneekorConnectorSettings
         return settings;
     }
 
-    public void Save()
+    public void Save(string? path = null)
     {
         Normalize();
-        var path = GetPath();
+        path ??= DefaultPath();
         var directory = Path.GetDirectoryName(path);
         if (!string.IsNullOrWhiteSpace(directory))
             Directory.CreateDirectory(directory);
@@ -53,6 +53,9 @@ internal sealed class UneekorConnectorSettings
             path,
             JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
     }
+
+    public static string DefaultPath()
+        => Path.Combine(AppContext.BaseDirectory, "Settings", "Other", "uneekor-rela-connector.json");
 
     public UneekorConnectorSettings Copy()
         => (UneekorConnectorSettings)MemberwiseClone();
@@ -84,6 +87,4 @@ internal sealed class UneekorConnectorSettings
         };
     }
 
-    private static string GetPath()
-        => Path.Combine(AppContext.BaseDirectory, "Settings", "Other", "uneekor-rela-connector.json");
 }

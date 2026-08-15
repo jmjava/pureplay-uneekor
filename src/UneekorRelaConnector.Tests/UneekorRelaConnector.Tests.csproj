@@ -15,5 +15,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\UneekorRelaConnector.Core\UneekorRelaConnector.Core.csproj" />
+    <ProjectReference Include="..\UneekorRelaConnector.Installer.Core\UneekorRelaConnector.Installer.Core.csproj" />
   </ItemGroup>
 </Project>
