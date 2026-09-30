@@ -11,6 +11,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Compile putting core into this DLL so users still drop one file next to rela.exe. -->
+    <Compile Include="..\UneekorRelaConnector.Core\*.cs" Link="Core\%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="rela.OtherDevice.Abstractions" Version="1.0.0">
       <IncludeAssets>compile</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>

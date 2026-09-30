@@ -5,13 +5,17 @@ using relaDevicePlugin;
 namespace UneekorRelaConnector;
 
 /// <summary>
-/// rēlā / PurePlay "Other" launch-monitor plugin that feeds Uneekor VIEW ShotData into the host.
+/// rēlā / PurePlay "Other" launch-monitor plugin.
+/// Full swing: Uneekor VIEW ShotData. Putting: ExPutt via file drop or
+/// GSPro Open Connect (piggyback on springbok's ExPutt OCR client).
 /// Deploy: copy UneekorRelaConnector.dll next to rela.exe, Device Type = Other, Search.
 /// </summary>
 public sealed class UneekorRelaConnectorDevice : ILMDevice, IDeviceSettingsProvider
 {
     private UneekorConnectorSettings _settings = new();
     private UneekorShotDataWatcher? _watcher;
+    private ExputtPuttFileWatcher? _puttWatcher;
+    private GsproOpenConnectServer? _openConnect;
     private string _mode = "NORMAL";
     private string _handed = "RH";
     private bool _connected;
@@ -22,7 +26,7 @@ public sealed class UneekorRelaConnectorDevice : ILMDevice, IDeviceSettingsProvi
     public bool OtherBallPresent { get; private set; }
     public bool OtherIsArmed { get; private set; }
     public bool UsesTelemetryFinalShotPath => true;
-    public string SupportedConnectionTypes => "Direct";
+    public string SupportedConnectionTypes => "Direct,Network";
     public long LastStatusUtcTicks { get; private set; } = DateTime.UtcNow.Ticks;
 
     public event Action<DeviceShotData> OnBallData = delegate { };
@@ -34,6 +38,9 @@ public sealed class UneekorRelaConnectorDevice : ILMDevice, IDeviceSettingsProvi
     public event Action<string> OnModeChange = delegate { };
     public event Action<string> OnError = delegate { };
     public event Action<string> OnNote = delegate { };
+
+    private bool IsPuttingActive =>
+        ExputtPuttParser.IsPuttingActive(_mode, _lastClub, _settings.AutoPuttingOnPutterClub);
 
     public void Init()
     {
@@ -56,7 +63,8 @@ public sealed class UneekorRelaConnectorDevice : ILMDevice, IDeviceSettingsProvi
         OnNotification.Invoke("[Uneekor] Initialized.");
     }
 
-    public string GetDeviceName() => "Uneekor VIEW (ShotData)";
+    public string GetDeviceName()
+        => _settings.PuttingEnabled ? "Uneekor VIEW + ExPutt" : "Uneekor VIEW (ShotData)";
 
     public void ShowDeviceSettings()
     {
@@ -80,10 +88,10 @@ public sealed class UneekorRelaConnectorDevice : ILMDevice, IDeviceSettingsProvi
             OnModeChange.Invoke(_mode);
             OnHandedChange.Invoke(_handed);
             OnNotification.Invoke("[Uneekor] Device settings saved.");
+            PublishPlayerInfo();
 
             if (_connected)
             {
-                // Restart watcher if path/options changed.
                 Disconnect();
                 Connect();
             }
@@ -105,25 +113,47 @@ public sealed class UneekorRelaConnectorDevice : ILMDevice, IDeviceSettingsProvi
         try
         {
             var dir = ResolveShotDataDirectory();
-            if (string.IsNullOrWhiteSpace(dir))
+            var shotDataOk = !string.IsNullOrWhiteSpace(dir) && Directory.Exists(dir);
+            if (!shotDataOk && !_settings.PuttingEnabled)
             {
-                OnError.Invoke("[Uneekor] ShotData directory not configured.");
-                OnNotification.Invoke("[Other] Disconnected: ShotData path missing.");
+                var reason = string.IsNullOrWhiteSpace(dir)
+                    ? "ShotData path missing."
+                    : "ShotData folder not found: " + dir;
+                OnError.Invoke("[Uneekor] " + reason);
+                OnNotification.Invoke("[Other] Disconnected: " + reason);
                 return false;
             }
 
-            if (!Directory.Exists(dir))
+            StopSources();
+
+            if (shotDataOk)
             {
-                OnError.Invoke("[Uneekor] ShotData folder not found: " + dir);
-                OnNotification.Invoke("[Other] Disconnected: ShotData folder not found.");
-                return false;
+                _watcher = new UneekorShotDataWatcher(dir!);
+                _watcher.Log += msg => OnNotification.Invoke("[Uneekor] " + msg);
+                _watcher.ShotDetected += OnUneekorShot;
+                _watcher.Start(ignoreExisting: true);
+            }
+            else
+            {
+                OnNotification.Invoke("[Uneekor] ShotData folder not found — putting-only session.");
             }
 
-            StopWatcher();
-            _watcher = new UneekorShotDataWatcher(dir);
-            _watcher.Log += msg => OnNotification.Invoke("[Uneekor] " + msg);
-            _watcher.ShotDetected += OnUneekorShot;
-            _watcher.Start(ignoreExisting: true);
+            if (_settings.FilePuttingEnabled)
+            {
+                var puttDir = _settings.ResolvePuttingDirectory();
+                _puttWatcher = new ExputtPuttFileWatcher(puttDir);
+                _puttWatcher.Log += msg => OnNotification.Invoke("[ExPutt] " + msg);
+                _puttWatcher.PuttDetected += OnExputtPutt;
+                _puttWatcher.Start(ignoreExisting: true);
+            }
+
+            if (_settings.OpenConnectPuttingEnabled)
+            {
+                _openConnect = new GsproOpenConnectServer(_settings.OpenConnectBind, _settings.OpenConnectPort);
+                _openConnect.Log += msg => OnNotification.Invoke("[ExPutt] " + msg);
+                _openConnect.PuttDetected += OnExputtPutt;
+                _openConnect.Start();
+            }
 
             _connected = true;
             OtherIsReady = true;
@@ -132,9 +162,10 @@ public sealed class UneekorRelaConnectorDevice : ILMDevice, IDeviceSettingsProvi
             TouchActivity();
 
             OnNote.Invoke("[Other] BallStatus: ready=true ball=false");
-            OnNotification.Invoke("[Other] Connected: Uneekor VIEW ShotData @ " + dir);
+            OnNotification.Invoke("[Other] Connected: " + DescribeSession(dir, shotDataOk));
             OnModeChange.Invoke(_mode);
             OnHandedChange.Invoke(_handed);
+            PublishPlayerInfo();
             return true;
         }
         catch (Exception ex)
@@ -153,14 +184,14 @@ public sealed class UneekorRelaConnectorDevice : ILMDevice, IDeviceSettingsProvi
 
     public bool Disconnect()
     {
-        StopWatcher();
+        StopSources();
         _connected = false;
         OtherIsReady = false;
         OtherBallPresent = false;
         OtherIsArmed = false;
         TouchActivity();
         OnNote.Invoke("[Other] BallStatus: ready=false ball=false");
-        OnNotification.Invoke("[Other] Disconnected: Uneekor VIEW ShotData.");
+        OnNotification.Invoke("[Other] Disconnected: Uneekor VIEW / ExPutt.");
         return true;
     }
 
@@ -169,6 +200,7 @@ public sealed class UneekorRelaConnectorDevice : ILMDevice, IDeviceSettingsProvi
         _handed = "RH";
         SaveCurrentSettings();
         OnHandedChange.Invoke("RH");
+        PublishPlayerInfo();
         return true;
     }
 
@@ -177,30 +209,32 @@ public sealed class UneekorRelaConnectorDevice : ILMDevice, IDeviceSettingsProvi
         _handed = "LH";
         SaveCurrentSettings();
         OnHandedChange.Invoke("LH");
+        PublishPlayerInfo();
         return true;
     }
 
     public bool SetPuttingMode()
     {
-        _mode = "PUTTING";
-        SaveCurrentSettings();
-        OnModeChange.Invoke(_mode);
+        EnterMode("PUTTING");
+        if (string.IsNullOrWhiteSpace(_lastClub) || !ExputtPuttParser.IsPutterClub(_lastClub))
+            _lastClub = "PT";
+        PublishPlayerInfo();
         return true;
     }
 
     public bool SetChippingMode()
     {
-        _mode = "CHIPPING";
-        SaveCurrentSettings();
-        OnModeChange.Invoke(_mode);
+        EnterMode("CHIPPING");
+        PublishPlayerInfo();
         return true;
     }
 
     public bool SetNormalMode()
     {
-        _mode = "NORMAL";
-        SaveCurrentSettings();
-        OnModeChange.Invoke(_mode);
+        EnterMode("NORMAL");
+        if (ExputtPuttParser.IsPutterClub(_lastClub))
+            _lastClub = "DR";
+        PublishPlayerInfo();
         return true;
     }
 
@@ -221,6 +255,16 @@ public sealed class UneekorRelaConnectorDevice : ILMDevice, IDeviceSettingsProvi
     {
         _lastClub = club;
         OnNotification.Invoke("[Uneekor] Simulator club: " + club);
+
+        if (_settings.AutoPuttingOnPutterClub)
+        {
+            if (ExputtPuttParser.IsPutterClub(club) && _mode != "PUTTING")
+                EnterMode("PUTTING");
+            else if (!ExputtPuttParser.IsPutterClub(club) && _mode == "PUTTING")
+                EnterMode("NORMAL");
+        }
+
+        PublishPlayerInfo();
         return true;
     }
 
@@ -228,6 +272,12 @@ public sealed class UneekorRelaConnectorDevice : ILMDevice, IDeviceSettingsProvi
     {
         try
         {
+            if (IsPuttingActive && _settings.IgnoreUneekorWhilePutting && _settings.PuttingEnabled)
+            {
+                OnNotification.Invoke("[Uneekor] Ignored ShotData while putting (ExPutt is the putting source).");
+                return;
+            }
+
             var speed = parsed.Speed * _settings.SpeedScale;
             var hla = _settings.InvertHla ? -parsed.Hla : parsed.Hla;
             var notes = new List<string> { "uneekor-shotdata:" + parsed.FolderName };
@@ -236,52 +286,145 @@ public sealed class UneekorRelaConnectorDevice : ILMDevice, IDeviceSettingsProvi
             if (!string.IsNullOrWhiteSpace(_lastClub))
                 notes.Add("simClub=" + _lastClub);
 
-            // Heuristic: very low ball speed in putting mode or under ~15 mph.
             if (_mode == "PUTTING" || speed < 15m)
                 notes.Add("OTHER_PUTT_LIKE=1");
 
-            var shot = new DeviceShotData
-            {
-                Speed = Round(speed, 2),
-                HLA = Round(hla, 2),
-                VLA = Round(parsed.Vla, 2),
-                BackSpin = Round(parsed.BackSpin, 1),
-                SideSpin = Round(parsed.SideSpin, 1),
-                SpinAxis = Round(parsed.SpinAxis, 2),
-                TotalSpin = Round(parsed.TotalSpin, 1),
-                CarryDistance = 0m,
-                IsShotValid = true,
-                Notes = notes
-            };
-
-            OtherBallPresent = true;
-            TouchActivity();
-            OnNote.Invoke("[Other] BallStatus: ready=true ball=true");
-
-            // Final-only path: do not also emit OnBallData with the same payload.
-            OnShotEnded(shot);
-
-            OnRawShot(new DeviceRawShot
-            {
-                InsertedAt = DateTime.UtcNow,
-                TotalSpeedMPH = shot.Speed,
-                TotalSpin = shot.TotalSpin,
-                Carry = shot.CarryDistance
-            });
-
-            OnNotification.Invoke(
-                $"[Uneekor] Shot #{parsed.FolderName}: {shot.Speed} mph, VLA {shot.VLA}, HLA {shot.HLA}, spin {shot.TotalSpin}");
-
-            // Clear ball-present shortly so UI can re-arm for next swing.
-            OtherBallPresent = false;
-            OtherIsReady = true;
-            OtherIsArmed = true;
-            OnNote.Invoke("[Other] BallStatus: ready=true ball=false");
+            EmitFinalShot(
+                speed: speed,
+                hla: hla,
+                vla: parsed.Vla,
+                backSpin: parsed.BackSpin,
+                sideSpin: parsed.SideSpin,
+                spinAxis: parsed.SpinAxis,
+                totalSpin: parsed.TotalSpin,
+                path: 0m,
+                faceToTarget: 0m,
+                notes: notes,
+                log: $"[Uneekor] Shot #{parsed.FolderName}: {Round(speed, 2)} mph, VLA {Round(parsed.Vla, 2)}, HLA {Round(hla, 2)}, spin {Round(parsed.TotalSpin, 1)}");
         }
         catch (Exception ex)
         {
             OnError.Invoke("[Uneekor] Shot emit failed: " + ex.Message);
         }
+    }
+
+    private void OnExputtPutt(ParsedPutt parsed)
+    {
+        try
+        {
+            if (!IsPuttingActive)
+            {
+                OnNotification.Invoke("[ExPutt] Ignored putt — not in putting mode (select PT / SetPuttingMode).");
+                return;
+            }
+
+            var speed = parsed.Speed * _settings.PuttSpeedScale;
+            var hla = _settings.InvertPuttHla ? -parsed.Hla : parsed.Hla;
+            var notes = new List<string>
+            {
+                "exputt:" + parsed.Source,
+                "OTHER_PUTT_LIKE=1"
+            };
+            if (!string.IsNullOrWhiteSpace(_lastClub))
+                notes.Add("simClub=" + _lastClub);
+
+            EmitFinalShot(
+                speed: speed,
+                hla: hla,
+                vla: parsed.Vla,
+                backSpin: 0m,
+                sideSpin: 0m,
+                spinAxis: 0m,
+                totalSpin: 0m,
+                path: parsed.Path,
+                faceToTarget: parsed.FaceToTarget,
+                notes: notes,
+                log: $"[ExPutt] Putt: {Round(speed, 2)} mph, HLA {Round(hla, 2)}, path {Round(parsed.Path, 2)}");
+        }
+        catch (Exception ex)
+        {
+            OnError.Invoke("[ExPutt] Putt emit failed: " + ex.Message);
+        }
+    }
+
+    private void EmitFinalShot(
+        decimal speed,
+        decimal hla,
+        decimal vla,
+        decimal backSpin,
+        decimal sideSpin,
+        decimal spinAxis,
+        decimal totalSpin,
+        decimal path,
+        decimal faceToTarget,
+        List<string> notes,
+        string log)
+    {
+        var shot = new DeviceShotData
+        {
+            Speed = Round(speed, 2),
+            HLA = Round(hla, 2),
+            VLA = Round(vla, 2),
+            BackSpin = Round(backSpin, 1),
+            SideSpin = Round(sideSpin, 1),
+            SpinAxis = Round(spinAxis, 2),
+            TotalSpin = Round(totalSpin, 1),
+            CarryDistance = 0m,
+            ClubPathHorizontalDeg = Round(path, 2),
+            FaceAngleDeg = Round(faceToTarget, 2),
+            IsShotValid = true,
+            Notes = notes
+        };
+
+        OtherBallPresent = true;
+        TouchActivity();
+        OnNote.Invoke("[Other] BallStatus: ready=true ball=true");
+
+        // Final-only path: do not also emit OnBallData with the same payload.
+        OnShotEnded(shot);
+
+        OnRawShot(new DeviceRawShot
+        {
+            InsertedAt = DateTime.UtcNow,
+            TotalSpeedMPH = shot.Speed,
+            TotalSpin = shot.TotalSpin,
+            Carry = shot.CarryDistance
+        });
+
+        OnNotification.Invoke(log);
+
+        OtherBallPresent = false;
+        OtherIsReady = true;
+        OtherIsArmed = true;
+        OnNote.Invoke("[Other] BallStatus: ready=true ball=false");
+    }
+
+    private void EnterMode(string mode)
+    {
+        _mode = mode;
+        SaveCurrentSettings();
+        OnModeChange.Invoke(_mode);
+        OnNotification.Invoke("[Uneekor] Mode: " + _mode + (IsPuttingActive ? " (ExPutt armed)" : " (Uneekor armed)"));
+    }
+
+    private void PublishPlayerInfo()
+    {
+        var club = IsPuttingActive
+            ? (ExputtPuttParser.IsPutterClub(_lastClub) ? _lastClub! : "PT")
+            : (string.IsNullOrWhiteSpace(_lastClub) || ExputtPuttParser.IsPutterClub(_lastClub) ? "DR" : _lastClub);
+        try { _openConnect?.SetPlayer(_handed, club); } catch { /* ignore */ }
+    }
+
+    private string DescribeSession(string? dir, bool shotDataOk)
+    {
+        var parts = new List<string>();
+        if (shotDataOk)
+            parts.Add("Uneekor VIEW ShotData @ " + dir);
+        if (_settings.FilePuttingEnabled)
+            parts.Add("ExPutt file @ " + _settings.ResolvePuttingDirectory());
+        if (_settings.OpenConnectPuttingEnabled)
+            parts.Add("ExPutt Open Connect " + _settings.OpenConnectBind + ":" + _settings.OpenConnectPort);
+        return parts.Count == 0 ? "no sources" : string.Join(" + ", parts);
     }
 
     private string? ResolveShotDataDirectory()
@@ -291,10 +434,14 @@ public sealed class UneekorRelaConnectorDevice : ILMDevice, IDeviceSettingsProvi
         return UneekorShotDataWatcher.DefaultShotDataDirectory();
     }
 
-    private void StopWatcher()
+    private void StopSources()
     {
         try { _watcher?.Dispose(); } catch { /* ignore */ }
         _watcher = null;
+        try { _puttWatcher?.Dispose(); } catch { /* ignore */ }
+        _puttWatcher = null;
+        try { _openConnect?.Dispose(); } catch { /* ignore */ }
+        _openConnect = null;
     }
 
     private void SaveCurrentSettings()

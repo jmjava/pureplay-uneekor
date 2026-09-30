@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net6.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>UneekorRelaConnector.Installer</AssemblyName>
+    <RootNamespace>UneekorRelaConnector.Installer</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\UneekorRelaConnector.Installer.Core\UneekorRelaConnector.Installer.Core.csproj" />
+  </ItemGroup>
+
+  <Target Name="CopyPluginPayload" AfterTargets="Build">
+    <PropertyGroup>
+      <_PluginDll>..\UneekorRelaConnector\bin\$(Configuration)\net6.0-windows\UneekorRelaConnector.dll</_PluginDll>
+    </PropertyGroup>
+    <MakeDir Directories="$(OutputPath)payload" Condition="Exists('$(_PluginDll)')" />
+    <Copy
+      SourceFiles="$(_PluginDll)"
+      DestinationFolder="$(OutputPath)payload"
+      SkipUnchangedFiles="true"
+      Condition="Exists('$(_PluginDll)')" />
+  </Target>
+</Project>

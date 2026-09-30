@@ -10,17 +10,22 @@
 
 PurePlay will not natively support Uneekor “at this time.” Discord guidance pointed at an in-app open API for community plugins — that surface is **[eKsiSLe/rela-OtherLM](https://github.com/eKsiSLe/rela-OtherLM)** (branded **rēlā**): load a .NET `ILMDevice` DLL next to `rela.exe`, Device Type = **Other**.
 
-**Chosen architecture (no TCP bridge required):**
+**Chosen architecture:**
 
 ```
-Uneekor VIEW ShotData JSON
-        │
-        ▼
+Uneekor VIEW ShotData JSON          ExPutt Camera (monitor 2)
+        │                                    │
+        │                                    ▼
+        │                    springbok OCR (optional sidecar)
+        │                                    │ Open Connect :921
+        ▼                                    ▼
 UneekorRelaConnector.dll   (ILMDevice plugin in this repo)
         │ OnShotEnded(DeviceShotData)
         ▼
 rēlā / PurePlay host (Device Type = Other)
 ```
+
+Putting is documented in [exputt-putting.md](exputt-putting.md). The plugin arms ExPutt on `SetPuttingMode` / `SetClub("PT")` — the same PT switch as springbok.
 
 Uneekor ingest options (ranked):
 
@@ -270,6 +275,8 @@ Map from Uneekor `shotinfo.json` fields:
 - [ ] Swing in VIEW → ball flies in sim.
 - [ ] Validate HLA sign, putting (`OTHER_PUTT_LIKE=1`), club name notes.
 - [ ] Exercise `SetClub` from host if available.
+- [x] Dual-source putting: ExPutt file drop + Open Connect server (springbok sidecar).
+- [ ] Dual-monitor ExPutt Camera + springbok OCR → putt flies in sim.
 
 ### Phase 3 — Hardening
 

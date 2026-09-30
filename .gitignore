@@ -7,3 +7,5 @@ obj/
 .dotnet/
 *.nupkg
 packages/
+__pycache__/
+*.pyc
